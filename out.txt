@@ -1,0 +1,251 @@
+CSE-506 (Spring 2018) Homework Assignment #3
+  (100 points, 17% of your overall grade)
+     Version 2 (4/14/2018)
+       Due Tuesday 5/1/2018 @ 11:59pm
+
+* PURPOSE:
+
+Put together much the knowledge gained in this course, and develop a Linux
+kernel-based system to support process-based queues for handling file
+protection, compression, etc.  This would require you to change the main
+kernel code as well as develop some of the code using modules.
+
+* DEMOS:
+
+To expedite grading, and also allow you to show off your work, we'll have
+short demos per group (or for individuals who work alone).  More info TBA.
+
+* TEAMING:
+
+For HW3, you may work alone or in groups up to four people.  Regardless of
+your group size, you will be graded the same, but at the end of the course,
+I take group sizes into account when assigning final course grades.  See my
+grading policy online for details.
+
+If you work in a team, you MUST fill out the following form by Sunday,
+4/16/2018:
+
+https://docs.google.com/forms/d/e/1FAIpQLSee5ZW_zQ0mTfxXZF1ojMAuQeXN70exkYQQZV9sK5PpSie2Rg/viewform?c=0&w=1
+
+This is a Google form for you to list the CS ID of your team members (your
+CS ID is often the same as you SBU NetID).  You only need to fill out the
+form if you work in a team: if you work alone, no need to fill the form.
+You will need to login to Google Forms with your CS ID to be able to fill
+out the form.  Be sure to list the correct CS ID.
+
+I will create a shared GIT repo for each team, so you will NOT be using your
+individual GIT repos.  You must fill out the form by the deadline stated
+above: afterwards, I would not allow new teams to form or existing teams to
+split or change.
+
+Choose your team members carefully.  I will not accept later complaints
+about team members who "drop out" or don't contribute as much, or worse
+(cheating).  That said, it is ok to borrow code from your homeworks 1 or 2
+for this assignment, as long as you properly document it in your README.
+
+Note that being the third homework assignment in the class, it is on purpose
+made more open ended than the previous assignments.  I would expect you to
+demonstrate maturity, and come up with a clever design that you will
+describe in detail.  You have more freedom in this assignment to come up
+with your own design and justify it.  Recall that as time goes by this
+semester, I expect all of you to demonstrate an increased level of maturity
+and expertise in this class.  This is your chance to shine and show off what
+you've learned so far in this class.
+
+* INTRODUCTION:
+
+In Unix, when a file is deleted, it's gone forever and very hard to recover,
+even if a user mistakenly deleted a file.  That is why most OSs today have a
+"trashbin" folder.  That way, users should have a way to undo/recover a lost
+file deleted by mistake.  But, files in a trashbin take up space, so we need
+a way to compress and delete them after a time.  Also, those files sit there
+for a long time and may enable attackers to steal the data, so we'd like to be
+able to encrypt them.  Still, compression and encryption take time, so we'd
+like to do those asynchronously.
+
+* DETAILS (KERNEL CODE) -- MINIMUM FUNCTIONALITY REQUIRED:
+
+The basic functionality is this.  When files are unlink()'d, if the process
+or file is setup as such, then the file should be moved to a special
+trashbin folder, and optionally compressed/encrypted.  There should be a way
+to undo and recover a lost file, using an ioctl(2).
+
+You should add three flags to clone(2): CLONE_PROT_MV, CLONE_PROT_ZIP and
+CLONE_PROT_ENC.  A process created with CLONE_PROT_MV will simply cause
+unlink'ed files to be moved to the trashbin folder.  A process created with
+CLONE_PROT_ZIP will move all unlinked files to the trashbin folder and
+compress them.  A process created with CLONE_PROT_ENC will move all unlinked
+files to the trashbin folder and encrypt them.  It is possible to use all
+three flags on a process being cloned, thus combining encryption,
+compression, and moving to trashbin.
+
+When unlinking small files of 4KB and smaller, handle the encryption and/or
+compression synchronously (it should be faster).  But when unlinking larger
+files, you should instead queue the file to be processed (encryption,
+compression, moving) ASYNCHRONOUSLY.  That means you have to create kernel
+queues to process the files asynchronously, and have one or more kthreads to
+perform this processing.  (Study Linux's support for kernel work queues and
+such.)
+
+Kernel queues should have a max length.  Use 10 by default.  But allow a
+user to set the max queue length using a /proc (procfs) or /sys (sysfs)
+configuration parameter.  (Learn how to set such params and expose them in
+the namespace.)  If you read this config file (e.g., with /bin/cat), it
+should show the max queue length.  If you write to it ("echo 17 >
+config_file_path), then it will set the max limit.  Setting the limit to 0
+turns off async processing, so all unlinked files would be processed
+synchronously.  Note: if you reduce the length of the queue, you still have
+to finish processing existing entries in the queue(s).
+
+If a process tries to unlink() a file, and the queue is maxed out, then
+unlink(2) must block until the queue's length is under the max (recall
+"throttling the heavy writer").
+
+Support an ioctl(2) to undo/recover a lost file.  In that case, you'd have
+to move the file back to its original location, and decompress/encrypt as
+needed.  Note: you have to handle this even if a file is queued right now or
+it is in the middle of being processed, which makes such recovery more
+challenging because you have to interrupt the queue's operation mid-way.
+Note: you will probably have to store somewhere persistently information
+about ciphers, compression algs, and original file folder -- so you can
+recover properly.
+
+It's up to you how you want to protect the trashbin folder and its contents.
+It's a special folder, so a user should not be allowed to just chdir in
+there, and manually add/del/change files.
+
+Support another /proc (or /sys) parameter to set the max number of files in
+the trashbin folder.  Use 10 by default.  If the trashbin folder has more
+than that many files, you should delete older files via your kthread (e.g.,
+wakeup periodically to do trashbin cleaning as needed).  Changes to the max
+value should eventually be reflected in how many files are allowed to remain
+in the trashbin folder.
+
+Users want to know which files are currently queued for processing.  This is
+also useful for you for debugging.  So support a /proc entry that if you
+/bin/cat it, will list the queue's contents with as much detail as possible
+(e.g., file name, what ops are pending on it, their status, timestamps, and
+whatever else is useful).
+
+If encryption is used, users should be able to set their cipher key or
+passphrase via a special ioctl (or a /proc or /sys entry).  Of course,
+cipher keys should be protected from view and should NOT be stored
+persistently.
+
+Prepare a set of small test C programs and /bin/sh shell scripts to test
+your code.  All such scripts and programs should be stored in your hw3/
+subfolder.  There should be a Makefile there that builds anything needed,
+and a target "make tests" to run all tests in sequence.  I expect you to
+have at least ten separate tests to verify the functionality of your
+assignment.  But in reality, one can have dozens of such regressions
+developed.  Your tests should try many possible conditions, basic
+functionality, and options you pick from below, and more.  These tests will
+be required for you to show off your work during the demo (to be scheduled).
+
+* DESIGN OPTIONS/SUGGESTION (food for thought for your design):
+
+Below are a number of options and suggestions.  I don't expect every
+person/group to implement all of these, but the more the better.  Impress
+us.
+
+You can decide if you want to have a global trashbin folder or one per
+user/group.
+
+You can decide if you want to have a global kernel queue, or one per
+user/group.  But be careful not to overwhelm the system with too much work
+or too many kthreads.
+
+It is ok to hard-code the encryption cipher/mode, and the compression
+algorithm used (if you use only one).  If you decide to support multiple
+ciphers and/or compression algorithms, you'll need a way to record those
+options on a per-file basis.
+
+The order of compress, encrypt, and move to trashbin is unspecified.  It's
+up to you to design this to be correct, efficient, and robust.
+
+You have to figure out all kinds of error conditions and handle them.  This
+becomes challenging because it is hard to return error codes to a system
+call when the action is asynchronous (e.g., unlink has finished a long time
+ago, but the file compression failed later on).  Worse, it is possible
+that the process that issued the unlink has terminated while there's still
+queued items on behalf of that process.
+
+You have to document your design well.  Correct functionality and error
+handling is more important than efficiency, but whenever possible, ensure
+your system is as efficient as possible.
+
+There should be a way for users to purge their trashbin folder completely
+(i.e., permanently delete all files).
+
+* GIT REPOSITORY
+
+For this assignment, we've created clean GIT kernel repositories for each of
+you.  Do not use the one from previous assignments for this assignment; but
+you can copy a good .config you've had before and use that for this
+assignment.  You can clone your new GIT repo as follows, using similar
+instructions as before:
+
+# git clone ssh://USER@scm.cs.stonybrook.edu:130/scm/cse506git-s18/hw3-USER
+
+Note that if you don't have enough disk space on your VM, it'll be a good
+idea to remove the older assignment repos to make space.
+
+If you want, you can use my kernel config as a starting point, and adapt it
+as needed:
+
+http://www3.cs.stonybrook.edu/~ezk/cse506-s18/cse506-s18-kernel.config
+
+* SUBMISSION
+
+Simply git-commit and git-push your changes to your cloned git repository; a
+successful git-push will result in an email going to you, confirming the
+commit and push.  Don't forget to include the hw3/README file.  If for some
+reason you decided to add other file(s) to your GIT repository, please
+mention this in hw3/README so we don't miss it during grading (and justify
+why a new file was needed).
+
+All NEW user-level files should be added to the hw3-USER/hw3/ subdir in your
+repo (e.g., README, user-land code, additional Makefile, etc.).  Any kernel
+code you modify should be where the original kernel source file was.  The
+only exception is if a new file is more appropriately located in a
+different folder (e.g., in fs/ or kernel/).  Please let us know in your
+hw3/README where new files were added, which files were changed and how, so
+it'll be easier for the graders to identify all your code.
+
+Your hw3/README should detail your design and implementation, user-level
+code, anything special/different you did, etc.  If you prefer, you can
+submit a hw3/README.pdf as a PDF file, so you can insert figures, have nice
+looking sections, etc.  For this assignment, because there is so much
+flexibility, this README (aka design doc) would be an important part of your
+grade!
+
+Also note that we will just do a git clone of your final repository and run
+make, make modules_install, and make install as usual.  You must not assume
+that we will do ANY modifications to your code.  Your code MUST compile and
+run as it is.  You will lose many points in the submission section IF your
+code doesn't compile/run as checked out.
+
+* EXTRA CREDIT (OPTIONAL, MAX 15 pts)
+
+There's no explicit extra credit for this assignment.  However, when we
+grade (and/or demo) your code, we may decide to give special credit for
+clever designs, neat features, exceptionally clean code, etc.  Be sure to
+document any special things you've done.  In other words, impress us!
+There's a ton of options described above to customize this assignment as
+desired.
+
+Good luck.
+
+* Copyright Statement
+
+(c) 2018 Erez Zadok
+(c) Stony Brook University
+
+DO NOT POST ANY PART OF THIS ASSIGNMENT OR MATERIALS FROM THIS COURSE ONLINE
+IN ANY PUBLIC FORUM, WEB SITE, BLOG, ETC.  DO NOT POST ANY OF YOUR CODE,
+SOLUTIONS, NOTES, ETC.
+
+* ChangeLog: a list of changes that this description had
+
+v1: original version
+v2: reviewed by TAs.
