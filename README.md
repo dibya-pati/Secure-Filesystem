@@ -1,11 +1,9 @@
-CSE-506 S'18 HW3
-
 --------------
 Team Members:
 --------------
-Alok Thatikunta (athatikunta)
-Dibya Jyoti Pati (dpati)
-
+Dibyajyoti Pati
+Alok Thatikunta 
+ 
 --------------
 Design:
 --------------
@@ -22,13 +20,13 @@ Design:
 Setup:
 --------------
 git clone ssh://athatikunta@scm.cs.stonybrook.edu:130/scm/cse506git-s18/hw3-cse506g03
-#Install all modules
+#### Install all modules
 cd /usr/src/hw3-cse506g03/
 make
 make modules
 make modules_install install
 
-#Install sgfs, c (ioctl codes) modules
+#### Install sgfs, c (ioctl codes) modules
 cd /usr/src/hw3-cse506g03/fs/sgfs
 umount /mnt/sgfs
 rmmod sgfs
