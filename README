@@ -19,7 +19,6 @@ Design:
 ----------------------------------------------------------------------------------------------------------------
 Setup:
 --------------
-git clone ssh://athatikunta@scm.cs.stonybrook.edu:130/scm/cse506git-s18/hw3-cse506g03
 # Install all modules
 cd /usr/src/hw3-cse506g03/
 make
